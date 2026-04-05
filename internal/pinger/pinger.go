@@ -1,6 +1,7 @@
 package pinger
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -8,16 +9,16 @@ import (
 	"pingtower/ping-service/internal/models"
 )
 
-func PingTarget(target models.ServerEventServer, timeoutMs int) models.PingRecordedPayload {
+func PingTarget(ctx context.Context, target models.ServerEventServer) models.PingRecordedPayload {
 	result := newPingRecordedPayload(target)
 
 	switch target.Protocol {
 	case models.ProtocolHTTP, models.ProtocolHTTPS:
-		return pingHTTP(result, target, timeoutMs)
+		return pingHTTP(ctx, result, target)
 	case models.ProtocolTCP:
-		return pingTCP(result, target, timeoutMs)
+		return pingTCP(ctx, result, target)
 	case models.ProtocolICMP:
-		return pingICMP(result, target, timeoutMs)
+		return pingICMP(ctx, result, target)
 	default:
 		result.ErrorMessage = stringPtr(fmt.Sprintf("unsupported protocol: %s", target.Protocol))
 		return result

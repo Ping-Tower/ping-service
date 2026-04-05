@@ -9,14 +9,14 @@ import (
 	"pingtower/ping-service/internal/models"
 )
 
-func pingICMP(result models.PingRecordedPayload, target models.ServerEventServer, timeoutMs int) models.PingRecordedPayload {
+func pingICMP(parentCtx context.Context, result models.PingRecordedPayload, target models.ServerEventServer) models.PingRecordedPayload {
 	if strings.TrimSpace(target.Host) == "" {
 		result.ErrorMessage = stringPtr("icmp probe failed: empty host")
 		return result
 	}
 
-	timeout := normalizeTimeout(timeoutMs)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	timeout := networkProbeTimeout()
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
 	result.DNSLookupMs = measureDNSLookup(ctx, target.Host)

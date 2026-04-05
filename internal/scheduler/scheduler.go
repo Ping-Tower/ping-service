@@ -15,9 +15,12 @@ type PingResultPublisher interface {
 	Publish(context.Context, models.PingRecordedPayload) error
 }
 
+type PingFunc func(context.Context, models.ServerEventServer) models.PingRecordedPayload
+
 // Scheduler manages the lifecycle of periodic ping targets.
 type Scheduler struct {
-	publisher PingResultPublisher
+	publisher  PingResultPublisher
+	pingTarget PingFunc
 
 	targets   map[string]context.CancelFunc
 	targetsMu sync.RWMutex
@@ -26,8 +29,9 @@ type Scheduler struct {
 
 func New(publisher PingResultPublisher) *Scheduler {
 	return &Scheduler{
-		publisher: publisher,
-		targets:   make(map[string]context.CancelFunc),
+		publisher:  publisher,
+		pingTarget: pinger.PingTarget,
+		targets:    make(map[string]context.CancelFunc),
 	}
 }
 
@@ -45,8 +49,6 @@ func (s *Scheduler) StartTarget(target models.ServerEventPayload) {
 	}
 
 	intervalSec := intValueOrDefault(target.PingSettings.IntervalSec, 60)
-	timeoutMs := intValueOrDefault(target.PingSettings.LatencyThresholdMs, 400)
-
 	s.StopTarget(serverID)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,7 +58,7 @@ func (s *Scheduler) StartTarget(target models.ServerEventPayload) {
 	s.targetsMu.Unlock()
 
 	s.wg.Add(1)
-	go s.runTargetScheduler(ctx, target, intervalSec, timeoutMs)
+	go s.runTargetScheduler(ctx, target, intervalSec)
 }
 
 // StopTarget cancels the scheduler for the given server ID.
@@ -90,29 +92,65 @@ func (s *Scheduler) StopAll() {
 	s.wg.Wait()
 }
 
-func (s *Scheduler) runTargetScheduler(ctx context.Context, target models.ServerEventPayload, intervalSec, timeoutMs int) {
+func (s *Scheduler) runTargetScheduler(ctx context.Context, target models.ServerEventPayload, intervalSec int) {
 	defer s.wg.Done()
 
 	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
 	defer ticker.Stop()
 
-	s.runPingCycle(ctx, target, timeoutMs)
+	s.runPingCycle(ctx, target)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.runPingCycle(ctx, target, timeoutMs)
+			s.runPingCycle(ctx, target)
 		}
 	}
 }
 
-func (s *Scheduler) runPingCycle(ctx context.Context, target models.ServerEventPayload, timeoutMs int) {
-	result := pinger.PingTarget(target.Server, timeoutMs)
+func (s *Scheduler) runPingCycle(ctx context.Context, target models.ServerEventPayload) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	retries := intValueOrDefault(target.PingSettings.Retries, 0)
+	result := s.runPingAttempts(ctx, target.Server, retries)
+	if ctx.Err() != nil {
+		return
+	}
+
 	if err := s.publisher.Publish(ctx, result); err != nil {
 		log.Printf("error publishing ping result for %s: %v", result.ServerID, err)
 	}
+}
+
+func (s *Scheduler) runPingAttempts(ctx context.Context, server models.ServerEventServer, retries int) models.PingRecordedPayload {
+	attempts := retries + 1
+	if attempts <= 0 {
+		attempts = 1
+	}
+
+	var result models.PingRecordedPayload
+	for attempt := 1; attempt <= attempts; attempt++ {
+		result = s.pingTarget(ctx, server)
+		if result.IsSuccess || attempt == attempts {
+			return result
+		}
+		if ctx.Err() != nil {
+			return result
+		}
+
+		log.Printf(
+			"ping attempt failed for %s on attempt %d/%d, retrying",
+			server.ID,
+			attempt,
+			attempts,
+		)
+	}
+
+	return result
 }
 
 func intValueOrDefault(value *int, fallback int) int {

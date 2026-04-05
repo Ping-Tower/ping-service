@@ -10,12 +10,9 @@ import (
 	"time"
 )
 
-func normalizeTimeout(timeoutMs int) time.Duration {
-	if timeoutMs <= 0 {
-		timeoutMs = 1000
-	}
-	return time.Duration(timeoutMs) * time.Millisecond
-}
+const defaultNetworkProbeTimeout = 5 * time.Second
+
+func networkProbeTimeout() time.Duration { return defaultNetworkProbeTimeout }
 
 func durationMilliseconds(d time.Duration) float64 {
 	return float64(d) / float64(time.Millisecond)

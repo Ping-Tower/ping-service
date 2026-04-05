@@ -11,15 +11,15 @@ import (
 	"pingtower/ping-service/internal/models"
 )
 
-func pingTCP(result models.PingRecordedPayload, target models.ServerEventServer, timeoutMs int) models.PingRecordedPayload {
+func pingTCP(parentCtx context.Context, result models.PingRecordedPayload, target models.ServerEventServer) models.PingRecordedPayload {
 	address, err := tcpAddress(target)
 	if err != nil {
 		result.ErrorMessage = stringPtr(err.Error())
 		return result
 	}
 
-	timeout := normalizeTimeout(timeoutMs)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	timeout := networkProbeTimeout()
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
 	result.DNSLookupMs = measureDNSLookup(ctx, target.Host)

@@ -31,15 +31,15 @@ var sharedHTTPClient = &http.Client{
 	Transport: sharedHTTPTransport,
 }
 
-func pingHTTP(result models.PingRecordedPayload, target models.ServerEventServer, timeoutMs int) models.PingRecordedPayload {
+func pingHTTP(parentCtx context.Context, result models.PingRecordedPayload, target models.ServerEventServer) models.PingRecordedPayload {
 	targetURL, err := buildHTTPURL(target)
 	if err != nil {
 		result.ErrorMessage = stringPtr(err.Error())
 		return result
 	}
 
-	timeout := normalizeTimeout(timeoutMs)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	timeout := networkProbeTimeout()
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
 	traceMetrics := newHTTPTraceMetrics()
