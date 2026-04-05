@@ -1,0 +1,31 @@
+services:
+  ping-service:
+    container_name: ping-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pingtower-ping-service:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_SERVER_EVENTS_QUEUE: ${RABBITMQ_SERVER_EVENTS_QUEUE}
+      RABBITMQ_PING_EVENTS_EXCHANGE: ${RABBITMQ_PING_EVENTS_EXCHANGE}
+      RABBITMQ_PING_RECORDED_ROUTING_KEY: ${RABBITMQ_PING_RECORDED_ROUTING_KEY}
+      RABBITMQ_RECONNECT_DELAY_MS: ${RABBITMQ_RECONNECT_DELAY_MS}
+      RABBITMQ_PUBLISH_WORKERS: ${RABBITMQ_PUBLISH_WORKERS}
+      RABBITMQ_PUBLISH_QUEUE_BUFFER: ${RABBITMQ_PUBLISH_QUEUE_BUFFER}
+    cap_add:
+      - NET_RAW
+    networks:
+      - pingtower_network
+
+networks:
+  pingtower_network:
+    name: pingtower_network
+    external: true

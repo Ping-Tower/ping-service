@@ -1,1 +1,16 @@
+# Environment
 .env
+.env.*
+
+# Build / binaries
+bin/
+dist/
+coverage.out
+*.test
+*.exe
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
