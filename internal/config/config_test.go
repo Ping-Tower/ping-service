@@ -34,12 +34,17 @@ func TestLoad_FromConfigFile(t *testing.T) {
 	if cfg.RabbitMQ.PublishWorkers != 8 {
 		t.Fatalf("expected 8 publish workers, got %d", cfg.RabbitMQ.PublishWorkers)
 	}
+	if cfg.Redis.Database != 2 {
+		t.Fatalf("expected default redis database 2, got %d", cfg.Redis.Database)
+	}
 }
 
 func TestLoad_FromEnvironmentWhenFileMissing(t *testing.T) {
 	t.Setenv("RABBITMQ_PASSWORD", "env-secret")
 	t.Setenv("RABBITMQ_HOST", "env-broker")
 	t.Setenv("RABBITMQ_SERVER_EVENTS_QUEUE", "q.custom.server-events")
+	t.Setenv("REDIS_DATABASE", "5")
+	t.Setenv("REDIS_KEY_PREFIX", "ping-service-custom")
 
 	cfg, err := Load(filepath.Join(t.TempDir(), "missing.env"))
 	if err != nil {
@@ -54,5 +59,11 @@ func TestLoad_FromEnvironmentWhenFileMissing(t *testing.T) {
 	}
 	if cfg.RabbitMQ.ServerEventsQueue != "q.custom.server-events" {
 		t.Fatalf("expected server events queue override, got %q", cfg.RabbitMQ.ServerEventsQueue)
+	}
+	if cfg.Redis.Database != 5 {
+		t.Fatalf("expected redis database 5, got %d", cfg.Redis.Database)
+	}
+	if cfg.Redis.KeyPrefix != "ping-service-custom" {
+		t.Fatalf("expected redis key prefix override, got %q", cfg.Redis.KeyPrefix)
 	}
 }

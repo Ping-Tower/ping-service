@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	RabbitMQ RabbitMQConfig `env-prefix:"RABBITMQ_"`
+	Redis    RedisConfig    `env-prefix:"REDIS_"`
 }
 
 type RabbitMQConfig struct {
@@ -24,6 +25,14 @@ type RabbitMQConfig struct {
 	ReconnectDelayMs       int    `env:"RECONNECT_DELAY_MS" env-default:"5000"`
 	PublishWorkers         int    `env:"PUBLISH_WORKERS" env-default:"4"`
 	PublishQueueBuffer     int    `env:"PUBLISH_QUEUE_BUFFER" env-default:"256"`
+}
+
+type RedisConfig struct {
+	Host      string `env:"HOST" env-default:"localhost"`
+	Port      int    `env:"PORT" env-default:"6379"`
+	Password  string `env:"PASSWORD"`
+	Database  int    `env:"DATABASE" env-default:"2"`
+	KeyPrefix string `env:"KEY_PREFIX" env-default:"ping-service"`
 }
 
 func Load(path string) (Config, error) {

@@ -15,41 +15,89 @@ type PingResultPublisher interface {
 	Publish(context.Context, models.PingRecordedPayload) error
 }
 
+type TargetStore interface {
+	SaveTarget(context.Context, models.ServerEventPayload) error
+	DeleteTarget(context.Context, string) error
+	LoadTargets(context.Context) ([]models.ServerEventPayload, error)
+}
+
 type PingFunc func(context.Context, models.ServerEventServer) models.PingRecordedPayload
 
 // Scheduler manages the lifecycle of periodic ping targets.
 type Scheduler struct {
 	publisher  PingResultPublisher
 	pingTarget PingFunc
+	store      TargetStore
 
 	targets   map[string]context.CancelFunc
 	targetsMu sync.RWMutex
 	wg        sync.WaitGroup
 }
 
-func New(publisher PingResultPublisher) *Scheduler {
+func New(publisher PingResultPublisher, store TargetStore) *Scheduler {
 	return &Scheduler{
 		publisher:  publisher,
 		pingTarget: pinger.PingTarget,
+		store:      store,
 		targets:    make(map[string]context.CancelFunc),
 	}
 }
 
 // StartTarget registers a target for periodic probing and starts its scheduler goroutine.
 // If a scheduler for this target already exists, it is replaced.
-func (s *Scheduler) StartTarget(target models.ServerEventPayload) {
+func (s *Scheduler) StartTarget(ctx context.Context, target models.ServerEventPayload) error {
 	serverID := target.Server.ID
 	if serverID == "" {
-		return
+		return nil
 	}
 
 	if target.Server.IsDeleted || !target.Server.IsActive || target.PingSettings.IsDeleted {
-		s.StopTarget(serverID)
-		return
+		return s.StopTarget(ctx, serverID)
 	}
 
+	if s.store != nil {
+		if err := s.store.SaveTarget(ctx, target); err != nil {
+			return err
+		}
+	}
+
+	s.startTargetInMemory(target)
+	return nil
+}
+
+func (s *Scheduler) RestoreTargets(ctx context.Context) error {
+	if s.store == nil {
+		return nil
+	}
+
+	targets, err := s.store.LoadTargets(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, target := range targets {
+		s.startTargetInMemory(target)
+	}
+
+	return nil
+}
+
+// StopTarget cancels the scheduler for the given server ID.
+func (s *Scheduler) StopTarget(ctx context.Context, serverID string) error {
+	if s.store != nil {
+		if err := s.store.DeleteTarget(ctx, serverID); err != nil {
+			return err
+		}
+	}
+
+	s.stopTargetInMemory(serverID)
+	return nil
+}
+
+func (s *Scheduler) startTargetInMemory(target models.ServerEventPayload) {
+	serverID := target.Server.ID
 	intervalSec := intValueOrDefault(target.PingSettings.IntervalSec, 60)
-	s.StopTarget(serverID)
+	s.stopTargetInMemory(serverID)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -61,8 +109,7 @@ func (s *Scheduler) StartTarget(target models.ServerEventPayload) {
 	go s.runTargetScheduler(ctx, target, intervalSec)
 }
 
-// StopTarget cancels the scheduler for the given server ID.
-func (s *Scheduler) StopTarget(serverID string) {
+func (s *Scheduler) stopTargetInMemory(serverID string) {
 	s.targetsMu.Lock()
 	cancel, exists := s.targets[serverID]
 	if exists {

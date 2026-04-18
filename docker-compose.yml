@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: pingtower-ping-service:local
+    image: ${PING_SERVICE_IMAGE_NAME}
     restart: unless-stopped
     env_file:
       - .env
@@ -20,6 +20,11 @@ services:
       RABBITMQ_RECONNECT_DELAY_MS: ${RABBITMQ_RECONNECT_DELAY_MS}
       RABBITMQ_PUBLISH_WORKERS: ${RABBITMQ_PUBLISH_WORKERS}
       RABBITMQ_PUBLISH_QUEUE_BUFFER: ${RABBITMQ_PUBLISH_QUEUE_BUFFER}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DATABASE: ${REDIS_DATABASE}
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX}
     cap_add:
       - NET_RAW
     networks:

@@ -1,0 +1,58 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+
+tests:
+  stage: test
+  image: golang:1.26.1-alpine
+  script:
+    - go test ./...
+
+build_image:
+  stage: build
+  image: docker:27.5.0
+  services:
+    - docker:27.5.0-dind
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+    GIT_SUBMODULE_DEPTH: 1
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build --pull -t $DOCKER_IMAGE_NAME .
+    - docker push $DOCKER_IMAGE_NAME
+  only:
+    - main
+    - stage
+
+.deploy_template:
+  stage: deploy
+  image: docker:27.5.0
+  before_script:
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | base64 -d | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\tPort $TARGET_PORT" > ~/.ssh/config
+    - docker context create remote-target --docker "host=ssh://$TARGET_USER@$TARGET_HOST"
+  script:
+    - cp $TARGET_ENV_FILE .env
+    - PING_SERVICE_IMAGE_NAME=$DOCKER_IMAGE_NAME
+      docker --context remote-target compose up -d --remove-orphans
+    - docker --context remote-target image prune -f
+
+deploy_prod:
+  extends: .deploy_template
+  needs: [build_image]
+  variables:
+    TARGET_PORT: $SSH_PORT_PROD
+    TARGET_HOST: $SSH_HOST_PROD
+    TARGET_USER: $SSH_USER_PROD
+    TARGET_ENV_FILE: $PROD_ENV_FILE
+  environment:
+    name: production
+  only:
+    - main

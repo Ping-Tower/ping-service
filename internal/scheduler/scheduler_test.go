@@ -100,17 +100,20 @@ func TestStartTarget_InactiveTargetCancelsExistingScheduler(t *testing.T) {
 
 	cancelled := make(chan struct{})
 	s := &Scheduler{
+		store: &stubTargetStore{},
 		targets: map[string]context.CancelFunc{
 			"server-4": func() { close(cancelled) },
 		},
 	}
 
-	s.StartTarget(models.ServerEventPayload{
+	if err := s.StartTarget(context.Background(), models.ServerEventPayload{
 		Server: models.ServerEventServer{
 			ID:       "server-4",
 			IsActive: false,
 		},
-	})
+	}); err != nil {
+		t.Fatalf("start target: %v", err)
+	}
 
 	select {
 	case <-cancelled:
@@ -120,6 +123,69 @@ func TestStartTarget_InactiveTargetCancelsExistingScheduler(t *testing.T) {
 
 	if _, exists := s.targets["server-4"]; exists {
 		t.Fatal("expected target entry to be removed")
+	}
+}
+
+func TestStartTarget_PersistsActiveTarget(t *testing.T) {
+	t.Parallel()
+
+	store := &stubTargetStore{}
+	s := &Scheduler{
+		store:   store,
+		targets: make(map[string]context.CancelFunc),
+	}
+
+	retries := 1
+	target := models.ServerEventPayload{
+		Server: models.ServerEventServer{
+			ID:       "server-5",
+			IsActive: true,
+		},
+		PingSettings: models.ServerEventPingSettings{
+			Retries: &retries,
+		},
+	}
+
+	if err := s.StartTarget(context.Background(), target); err != nil {
+		t.Fatalf("start target: %v", err)
+	}
+	defer s.StopAll()
+
+	if len(store.saved) != 1 {
+		t.Fatalf("expected 1 saved target, got %d", len(store.saved))
+	}
+	if store.saved[0].Server.ID != "server-5" {
+		t.Fatalf("expected saved target server-5, got %s", store.saved[0].Server.ID)
+	}
+}
+
+func TestRestoreTargets_StartsSchedulersFromStore(t *testing.T) {
+	t.Parallel()
+
+	retries := 1
+	store := &stubTargetStore{
+		loaded: []models.ServerEventPayload{
+			{
+				Server: models.ServerEventServer{
+					ID:       "server-6",
+					IsActive: true,
+				},
+				PingSettings: models.ServerEventPingSettings{
+					Retries: &retries,
+				},
+			},
+		},
+	}
+
+	s := New(&stubPublisher{}, store)
+	defer s.StopAll()
+
+	if err := s.RestoreTargets(context.Background()); err != nil {
+		t.Fatalf("restore targets: %v", err)
+	}
+
+	if _, exists := s.targets["server-6"]; !exists {
+		t.Fatal("expected restored scheduler for server-6")
 	}
 }
 
@@ -148,4 +214,24 @@ func (s *stubPublisher) lastPayload() models.PingRecordedPayload {
 	defer s.mu.Unlock()
 
 	return s.payloads[len(s.payloads)-1]
+}
+
+type stubTargetStore struct {
+	saved   []models.ServerEventPayload
+	deleted []string
+	loaded  []models.ServerEventPayload
+}
+
+func (s *stubTargetStore) SaveTarget(_ context.Context, target models.ServerEventPayload) error {
+	s.saved = append(s.saved, target)
+	return nil
+}
+
+func (s *stubTargetStore) DeleteTarget(_ context.Context, serverID string) error {
+	s.deleted = append(s.deleted, serverID)
+	return nil
+}
+
+func (s *stubTargetStore) LoadTargets(_ context.Context) ([]models.ServerEventPayload, error) {
+	return append([]models.ServerEventPayload(nil), s.loaded...), nil
 }
