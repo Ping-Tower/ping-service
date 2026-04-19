@@ -69,9 +69,18 @@ func pingICMP(parentCtx context.Context, result models.PingRecordedPayload, targ
 		result.IsSuccess = stats.PacketsRecv > 0 && stats.PacketLoss == 0
 	}
 
-	if err != nil {
-		result.ErrorMessage = stringPtr(fmt.Sprintf("icmp probe failed: %v", err))
-	}
+	applyICMPErrorMessage(&result, err)
 
 	return result
+}
+
+func applyICMPErrorMessage(result *models.PingRecordedPayload, err error) {
+	if err != nil {
+		result.ErrorMessage = stringPtr(fmt.Sprintf("icmp probe failed: %v", err))
+		return
+	}
+
+	if !result.IsSuccess {
+		result.ErrorMessage = stringPtr("icmp probe failed: no reply received")
+	}
 }

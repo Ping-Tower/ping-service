@@ -39,8 +39,6 @@ func pingTCP(parentCtx context.Context, result models.PingRecordedPayload, targe
 	result.IsSuccess = true
 	result.RTTMinMs = float64Ptr(elapsedMs)
 	result.RTTMaxMs = float64Ptr(elapsedMs)
-	result.SentBytes = int64Ptr(0)
-	result.ReceivedBytes = int64Ptr(0)
 	return result
 }
 
