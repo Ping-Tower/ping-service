@@ -1,29 +1,16 @@
-<div align="center">
+# PingTower Ping Service
 
-<a href="https://gitlab.com/pingtower"><img src="https://gitlab.com/uploads/-/system/group/avatar/121984904/logo-mark-avatar.png" width="72" alt="PingTower"></a>
+Probes every monitored server over HTTP/HTTPS, TCP and ICMP — one goroutine per target.
 
-# 📡 ping-service
-
-### Probes every monitored server over HTTP/HTTPS, TCP and ICMP — one goroutine per target
-
-[![pipeline](https://gitlab.com/pingtower/ping-service/badges/main/pipeline.svg)](https://gitlab.com/pingtower/ping-service/-/pipelines)
-![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)
-![RabbitMQ](https://img.shields.io/badge/RabbitMQ-FF6600?logo=rabbitmq&logoColor=white)
-![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white)
-
-<sub>Part of <a href="https://gitlab.com/pingtower"><b>PingTower</b></a> — real-time server availability monitoring</sub>
-
-</div>
-
----
+Stack: Go, RabbitMQ, Redis.
 
 ## Role in the system
 
 ping-service is the only component that talks to the outside world. It keeps a scheduler per monitored
 server, probes it on the configured interval and publishes every result as a `server.ping.recorded` event.
 It knows nothing about statuses or users — deciding whether a server is `UP` or `DOWN` is the job of
-[state-elevator](https://gitlab.com/pingtower/state-elevator), storing history is the job of
-[metrics-writer](https://gitlab.com/pingtower/metrics-writer).
+`state-elevator`, storing history is the job of
+`metrics-writer`.
 
 ```mermaid
 flowchart LR
@@ -46,15 +33,15 @@ flowchart LR
 
 | Direction | Channel | Name | Payload |
 | --- | --- | --- | --- |
-| ⬅️ In | queue ← `serverEventsExchange` | `q.ping-service.server-events` (`server.target.added` / `updated` / `deleted`) | `ServerEventPayload` — server + ping settings |
-| ➡️ Out | exchange `pingEventsExchange` | `server.ping.recorded` | `PingRecordedPayload` — success, latency, status code, TLS, DNS, RTT, packet loss… |
-| 💾 Storage | Redis (db `2`) | `ping-service:*` | last known target configuration |
+| In | queue ← `serverEventsExchange` | `q.ping-service.server-events` (`server.target.added` / `updated` / `deleted`) | `ServerEventPayload` — server + ping settings |
+| Out | exchange `pingEventsExchange` | `server.ping.recorded` | `PingRecordedPayload` — success, latency, status code, TLS, DNS, RTT, packet loss… |
+| Storage | Redis (db `2`) | `ping-service:*` | last known target configuration |
 
-Full message schemas: [`infra/rabbitmq/asyncapi.yaml`](https://gitlab.com/pingtower/infra/-/blob/main/rabbitmq/asyncapi.yaml).
+Full message schemas: `infra/rabbitmq/asyncapi.yaml`.
 
 ## Quick start
 
-**Whole stack** — via [infra](https://gitlab.com/pingtower/infra) (all repos cloned side by side):
+**Whole stack** — via `infra` (all repos cloned side by side):
 
 ```bash
 make -C infra up
