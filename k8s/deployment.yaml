@@ -1,0 +1,68 @@
+# Пинг-воркер: слушает q.ping-service.server-events, публикует pingEventsExchange.
+# HTTP-сервера нет — Service не нужен; проб нет (нет endpoint).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ping-service
+  namespace: pingtower
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: ping-service
+  template:
+    metadata:
+      labels:
+        app: ping-service
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: ping-service
+          image: registry.gitlab.com/pingtower/ping-service:REPLACE_WITH_COMMIT_SHA
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              # ICMP-пинги требуют raw sockets (cap_net_raw); остальное — drop.
+              add: [NET_RAW]
+          envFrom:
+            # RABBITMQ_HOST/PORT/USER, RABBITMQ_SERVER_EVENTS_QUEUE,
+            # RABBITMQ_PING_EVENTS_EXCHANGE, RABBITMQ_PING_RECORDED_ROUTING_KEY,
+            # REDIS_HOST/PORT (Go cleanenv читает имена как есть с префиксами).
+            - configMapRef:
+                name: pingtower-infra
+          env:
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq
+                  key: password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: password
+            # db/prefix совпадают с дефолтами кода (config.go) — зафиксированы явно.
+            - name: REDIS_DATABASE
+              value: "2"
+            - name: REDIS_KEY_PREFIX
+              value: ping-service
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

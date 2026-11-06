@@ -3,8 +3,13 @@ stages:
   - build
   - deploy
 
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
 variables:
-  DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
 
 tests:
   stage: test
@@ -22,37 +27,39 @@ build_image:
     GIT_SUBMODULE_DEPTH: 1
   before_script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
   script:
-    - docker build --pull -t $DOCKER_IMAGE_NAME .
-    - docker push $DOCKER_IMAGE_NAME
-  only:
-    - main
-    - stage
+    - docker buildx create --use --driver docker-container --driver-opt network=host
+    - docker buildx build --pull --provenance=false --sbom=false
+        --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:buildcache
+        --cache-to type=registry,ref=$CI_REGISTRY_IMAGE:buildcache,mode=max
+        -t $DOCKER_IMAGE_NAME --push .
 
-.deploy_template:
+deploy:
   stage: deploy
-  image: docker:27.5.0
-  before_script:
-    - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | base64 -d | ssh-add -
-    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    - echo -e "Host *\n\tStrictHostKeyChecking no\n\tPort $TARGET_PORT" > ~/.ssh/config
-    - docker context create remote-target --docker "host=ssh://$TARGET_USER@$TARGET_HOST"
-  script:
-    - cp $TARGET_ENV_FILE .env
-    - PING_SERVICE_IMAGE_NAME=$DOCKER_IMAGE_NAME
-      docker --context remote-target compose up -d --remove-orphans
-    - docker --context remote-target image prune -f
-
-deploy_prod:
-  extends: .deploy_template
   needs: [build_image]
-  variables:
-    TARGET_PORT: $SSH_PORT_PROD
-    TARGET_HOST: $SSH_HOST_PROD
-    TARGET_USER: $SSH_USER_PROD
-    TARGET_ENV_FILE: $PROD_ENV_FILE
+  image:
+    name: alpine/kubectl:1.37.1
+    entrypoint: [""]
+  tags: [saas-linux-small-amd64]
+  resource_group: pingtower-production
   environment:
     name: production
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: manual
+  allow_failure: false
+  manual_confirmation: "Развернуть ping-service в production?"
+  timeout: 20m
+  script:
+    - kubectl config use-context pingtower/infra:pingtower
+    - sed -i "s/REPLACE_WITH_COMMIT_SHA/$CI_COMMIT_SHA/g" k8s/kustomization.yaml
+    - kubectl apply --dry-run=server -k k8s/
+    # Собственные Store у воркера нет; нужные секреты выдаёт pingtower-infra.
+    - kubectl -n pingtower wait --for=condition=Ready
+        externalsecret/rabbitmq externalsecret/redis
+        externalsecret/gitlab-registry --timeout=120s
+    - kubectl -n pingtower get secret rabbitmq redis gitlab-registry -o name
+    - kubectl apply -k k8s/
+    - kubectl -n pingtower rollout status deployment/ping-service --timeout=600s
