@@ -1,0 +1,99 @@
+# Security gates adapted from tramplin1. Versions are pinned for reproducible CI.
+.security-check:
+  tags:
+    - saas-linux-small-amd64
+  before_script: []
+  after_script: []
+  services: []
+  cache: []
+  interruptible: true
+  timeout: 20m
+  allow_failure: false
+  rules:
+    - when: on_success
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - security-reports/
+gitleaks:
+  extends: .security-check
+  stage: test
+  image:
+    name: zricethezav/gitleaks:v8.30.1
+    entrypoint:
+      - ''
+  script:
+    - mkdir -p security-reports
+    - gitleaks detect --source . --no-git --redact --report-format json --report-path security-reports/gitleaks.json
+validate-k8s:
+  extends: .security-check
+  stage: test
+  image:
+    name: alpine/kubectl:1.37.1
+    entrypoint:
+      - ''
+  script:
+    - mkdir -p security-reports
+    - kubectl kustomize k8s/ > security-reports/kubernetes.yaml
+semgrep:
+  extends: .security-check
+  stage: test
+  image:
+    name: semgrep/semgrep:1.172.0
+    entrypoint:
+      - ''
+  script:
+    - mkdir -p security-reports
+    - semgrep scan --config=p/golang --config=p/owasp-top-ten --metrics=off --error
+      --json-output=security-reports/semgrep.json --sarif-output=security-reports/semgrep.sarif .
+trivy-sca:
+  extends: .security-check
+  stage: test
+  image:
+    name: aquasec/trivy:0.74.0
+    entrypoint:
+      - ''
+  variables:
+    TRIVY_CACHE_DIR: $CI_PROJECT_DIR/.cache/trivy
+  cache:
+    key: trivy-0.74.0
+    paths:
+      - .cache/trivy/
+  script:
+    - mkdir -p security-reports
+    - trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format json --output
+      security-reports/trivy-sca.json .
+trivy-image:
+  extends: .security-check
+  stage: container_scan
+  image:
+    name: aquasec/trivy:0.74.0
+    entrypoint:
+      - ''
+  variables:
+    TRIVY_CACHE_DIR: $CI_PROJECT_DIR/.cache/trivy
+    TRIVY_USERNAME: $CI_REGISTRY_USER
+    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+    SECURITY_IMAGES: $DOCKER_IMAGE_NAME
+  cache:
+    key: trivy-0.74.0
+    paths:
+      - .cache/trivy/
+  needs:
+    - job: build_image
+      artifacts: false
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+  script:
+    - mkdir -p security-reports
+    - |
+      test -n "$SECURITY_IMAGES"
+      status=0
+      index=0
+      for image in $SECURITY_IMAGES; do
+        index=$((index + 1))
+        trivy image --image-src remote --scanners vuln --severity HIGH,CRITICAL --exit-code 1 \
+          --format json --output "security-reports/trivy-image-$index.json" "$image" || status=1
+      done
+      exit "$status"
