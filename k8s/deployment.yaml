@@ -27,6 +27,9 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        sysctls:
+          - name: net.ipv4.ping_group_range
+            value: 0 2147483647
       imagePullSecrets:
         - name: gitlab-registry
       containers:
@@ -35,9 +38,13 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
-              drop: [ALL]
+              drop:
+                - ALL
               # ICMP-пинги требуют raw sockets (cap_net_raw); остальное — drop.
               add: [NET_RAW]
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
           envFrom:
             # RABBITMQ_HOST/PORT/USER, RABBITMQ_SERVER_EVENTS_QUEUE,
             # RABBITMQ_PING_EVENTS_EXCHANGE, RABBITMQ_PING_RECORDED_ROUTING_KEY,
